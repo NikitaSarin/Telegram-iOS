@@ -103,48 +103,128 @@ private func copyI420BufferToNV12Buffer(buffer: OngoingGroupCallContext.VideoFra
     return true
 }
 
-final class SampleBufferVideoRenderingView: UIView, VideoRenderingView {
-    static override var layerClass: AnyClass {
-        return AVSampleBufferDisplayLayer.self
+final class SampleBufferVideoRenderingView: UIView {
+
+    var sampleBufferLayer = AVSampleBufferDisplayLayer()
+
+    private let provider: SampleBufferVideoRenderingProvider
+
+    init(input: Signal<OngoingGroupCallContext.VideoFrameData, NoError>) {
+        provider = SampleBufferVideoRenderingProvider(input: input)
+        provider.layer = sampleBufferLayer
+        super.init(frame: .zero)
+
+        layer.addSublayer(sampleBufferLayer)
     }
 
-    var sampleBufferLayer: AVSampleBufferDisplayLayer {
-        return self.layer as! AVSampleBufferDisplayLayer
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        sampleBufferLayer.frame = bounds
     }
+}
+
+extension SampleBufferVideoRenderingView: VideoRenderingView {
+
+    func setOnFirstFrameReceived(_ f: @escaping (Float) -> Void) {
+        provider.setOnFirstFrameReceived(f)
+    }
+
+    func setOnOrientationUpdated(_ f: @escaping (PresentationCallVideoView.Orientation, CGFloat) -> Void) {
+        provider.setOnOrientationUpdated(f)
+    }
+
+    func getOrientation() -> PresentationCallVideoView.Orientation {
+        provider.getOrientation()
+    }
+
+    func getAspect() -> CGFloat {
+        provider.getAspect()
+    }
+
+    func setOnIsMirroredUpdated(_ f: @escaping (Bool) -> Void) {
+        provider.setOnIsMirroredUpdated(f)
+    }
+
+    func updateIsEnabled(_ isEnabled: Bool) {
+        provider.updateIsEnabled(isEnabled)
+    }
+}
+
+final class SampleBufferVideoRenderingProvider {
+
+    var layer: AVSampleBufferDisplayLayer? {
+        didSet {
+            layer?.videoGravity = .resize
+        }
+    }
+    private(set) var lastBuffer: CMSampleBuffer?
 
     private var isEnabled: Bool = false
 
     private var onFirstFrameReceived: ((Float) -> Void)?
+    private var onFrameReceived: ((CMSampleBuffer) -> Void)?
     private var onOrientationUpdated: ((PresentationCallVideoView.Orientation, CGFloat) -> Void)?
     private var onIsMirroredUpdated: ((Bool) -> Void)?
 
     private var didReportFirstFrame: Bool = false
     private var currentOrientation: PresentationCallVideoView.Orientation = .rotation0
-    private var currentAspect: CGFloat = 1.0
+    private var currentAspect: CGFloat = 16 / 9
 
     private var disposable: Disposable?
 
     init(input: Signal<OngoingGroupCallContext.VideoFrameData, NoError>) {
-        super.init(frame: CGRect())
 
         self.disposable = input.start(next: { [weak self] videoFrameData in
             Queue.mainQueue().async {
                 self?.addFrame(videoFrameData)
             }
         })
-
-        self.sampleBufferLayer.videoGravity = .resize
     }
 
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     deinit {
         self.disposable?.dispose()
     }
+}
 
-    private func addFrame(_ videoFrameData: OngoingGroupCallContext.VideoFrameData) {
+extension SampleBufferVideoRenderingProvider {
+
+    func setOnFrameReceived(_ f: @escaping (CMSampleBuffer) -> Void) {
+        self.onFrameReceived = f
+    }
+
+    func setOnFirstFrameReceived(_ f: @escaping (Float) -> Void) {
+        self.onFirstFrameReceived = f
+        self.didReportFirstFrame = false
+    }
+
+    func setOnOrientationUpdated(_ f: @escaping (PresentationCallVideoView.Orientation, CGFloat) -> Void) {
+        self.onOrientationUpdated = f
+    }
+
+    func getOrientation() -> PresentationCallVideoView.Orientation {
+        return self.currentOrientation
+    }
+
+    func getAspect() -> CGFloat {
+        return self.currentAspect
+    }
+
+    func setOnIsMirroredUpdated(_ f: @escaping (Bool) -> Void) {
+        self.onIsMirroredUpdated = f
+    }
+
+    func updateIsEnabled(_ isEnabled: Bool) {
+        self.isEnabled = isEnabled
+    }
+}
+
+private extension SampleBufferVideoRenderingProvider {
+
+    func addFrame(_ videoFrameData: OngoingGroupCallContext.VideoFrameData) {
         let aspect = CGFloat(videoFrameData.width) / CGFloat(videoFrameData.height)
         var isAspectUpdated = false
         if self.currentAspect != aspect {
@@ -172,7 +252,7 @@ final class SampleBufferVideoRenderingView: UIView, VideoRenderingView {
             switch videoFrameData.buffer {
             case let .native(buffer):
                 if let sampleBuffer = sampleBufferFromPixelBuffer(pixelBuffer: buffer.pixelBuffer) {
-                    self.sampleBufferLayer.enqueue(sampleBuffer)
+                    self.enqueue(sampleBuffer)
                 }
             case let .i420(buffer):
                 let ioSurfaceProperties = NSMutableDictionary()
@@ -192,7 +272,7 @@ final class SampleBufferVideoRenderingView: UIView, VideoRenderingView {
                 if let pixelBuffer = pixelBuffer {
                     if copyI420BufferToNV12Buffer(buffer: buffer, pixelBuffer: pixelBuffer) {
                         if let sampleBuffer = sampleBufferFromPixelBuffer(pixelBuffer: pixelBuffer) {
-                            self.sampleBufferLayer.enqueue(sampleBuffer)
+                            self.enqueue(sampleBuffer)
                         }
                     }
                 }
@@ -202,28 +282,9 @@ final class SampleBufferVideoRenderingView: UIView, VideoRenderingView {
         }
     }
 
-    func setOnFirstFrameReceived(_ f: @escaping (Float) -> Void) {
-        self.onFirstFrameReceived = f
-        self.didReportFirstFrame = false
-    }
-
-    func setOnOrientationUpdated(_ f: @escaping (PresentationCallVideoView.Orientation, CGFloat) -> Void) {
-        self.onOrientationUpdated = f
-    }
-
-    func getOrientation() -> PresentationCallVideoView.Orientation {
-        return self.currentOrientation
-    }
-
-    func getAspect() -> CGFloat {
-        return self.currentAspect
-    }
-
-    func setOnIsMirroredUpdated(_ f: @escaping (Bool) -> Void) {
-        self.onIsMirroredUpdated = f
-    }
-
-    func updateIsEnabled(_ isEnabled: Bool) {
-        self.isEnabled = isEnabled
+    func enqueue(_ buffer: CMSampleBuffer) {
+        lastBuffer = buffer
+        layer?.enqueue(buffer)
+        onFrameReceived?(buffer)
     }
 }

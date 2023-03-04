@@ -666,12 +666,21 @@ public final class SharedAccountContextImpl: SharedAccountContext {
                         strongSelf.callController?.dismiss()
                         strongSelf.callController = nil
                         strongSelf.hasOngoingCall.set(false)
-                        
-                        if let call = call {
+
+                        if let call = call as? PresentationCallImpl {
+                            let input = Calling.Input(
+                                call: call,
+                                appearPromise: strongSelf.hasGroupCallOnScreenPromise,
+                                lockPortrait: {
+                                    if $0 {
+                                        AppUtility.lockOrientation(.portrait)
+                                    } else {
+                                        AppUtility.lockOrientation(.allButUpsideDown)
+                                    }
+                                }
+                            )
+                            Calling.present(input: input)
                             mainWindow.hostView.containerView.endEditing(true)
-                            let callController = CallController(sharedContext: strongSelf, account: call.context.account, call: call, easyDebugAccess: !GlobalExperimentalSettings.isAppStoreBuild)
-                            strongSelf.callController = callController
-                            strongSelf.mainWindow?.present(callController, on: .calls)
                             strongSelf.callState.set(call.state
                             |> map(Optional.init))
                             strongSelf.hasOngoingCall.set(true)

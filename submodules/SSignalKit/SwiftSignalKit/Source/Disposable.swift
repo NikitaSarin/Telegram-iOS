@@ -176,6 +176,13 @@ public final class DisposableSet : Disposable {
     }
 }
 
+public extension Disposable {
+
+    func store(in set: inout DisposableSet) {
+        set.add(self)
+    }
+}
+
 public final class DisposableDict<T: Hashable> : Disposable {
     private var lock = pthread_mutex_t()
     private var disposed = false

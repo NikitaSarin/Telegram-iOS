@@ -44,6 +44,15 @@ import AppCenter
 import AppCenterCrashes
 #endif
 
+struct AppUtility {
+
+    static func lockOrientation(_ orientation: UIInterfaceOrientationMask) {
+        if let delegate = UIApplication.shared.delegate as? AppDelegate {
+            delegate.orientationLock = orientation
+        }
+    }
+}
+
 private let handleVoipNotifications = false
 
 private var testIsLaunched = false
@@ -701,20 +710,21 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
                 completion(false)
             }
         }, siriAuthorization: {
-            if #available(iOS 10, *) {
-                switch INPreferences.siriAuthorizationStatus() {
-                    case .authorized:
-                        return .allowed
-                    case .denied, .restricted:
-                        return .denied
-                    case .notDetermined:
-                        return .notDetermined
-                    @unknown default:
-                        return .notDetermined
-                }
-            } else {
-                return .denied
-            }
+//            if #available(iOS 10, *) {
+//                switch INPreferences.siriAuthorizationStatus() {
+//                    case .authorized:
+//                        return .allowed
+//                    case .denied, .restricted:
+//                        return .denied
+//                    case .notDetermined:
+//                        return .notDetermined
+//                    @unknown default:
+//                        return .notDetermined
+//                }
+//            } else {
+//                return .denied
+//            }
+            return .denied
         }, getWindowHost: {
             return self.nativeWindow
         }, presentNativeController: { controller in
@@ -1493,6 +1503,15 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
             }
         }
         |> runOn(.mainQueue())
+    }
+
+    var orientationLock = UIInterfaceOrientationMask.allButUpsideDown
+
+    func application(
+        _ application: UIApplication,
+        supportedInterfaceOrientationsFor window: UIWindow?
+    ) -> UIInterfaceOrientationMask {
+       orientationLock
     }
     
     private func addBackgroundUploadTask(id: String, path: String) {
